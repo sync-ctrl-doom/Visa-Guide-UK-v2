@@ -7,25 +7,26 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req: IncomingMessage) {
-        return {
-          id: (req as any).id,
-          method: req.method,
-          url: req.url?.split("?")[0],
-        };
-      },
-      res(res: ServerResponse) {
-        return {
-          statusCode: res.statusCode,
-        };
-      },
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const httpLogger = (pinoHttp as any)({
+  logger,
+  serializers: {
+    req(req: IncomingMessage) {
+      return {
+        id: (req as any).id,
+        method: req.method,
+        url: req.url?.split("?")[0],
+      };
     },
-  }),
-);
+    res(res: ServerResponse) {
+      return {
+        statusCode: res.statusCode,
+      };
+    },
+  },
+});
+
+app.use(httpLogger);
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
