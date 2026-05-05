@@ -1,0 +1,339 @@
+# Replit Agent Prompt — Convert to Progressive Web App (PWA)
+
+Paste this into Replit Agent for EACH of your two projects separately:
+- Your main immigration website (so clients can install it)
+- Your CRM (so you can use it on your phone like an app)
+
+---
+
+## THE PROMPT
+
+Convert this web app into a fully installable Progressive Web App (PWA) so users can install it on their iPhone or Android phone directly from the browser, without needing the App Store.
+
+### 1. Web App Manifest
+
+Create a file at /public/manifest.json with the following:
+
+```json
+{
+  "name": "Britannia Visas & Immigration",
+  "short_name": "Britannia Visas",
+  "description": "UK immigration and visa advisory service — manage your application and documents securely.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1e3a5f",
+  "theme_color": "#1e3a5f",
+  "categories": ["business", "legal"],
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
+```
+
+Generate placeholder icons in all the sizes above using a simple navy blue (#1e3a5f) square background with a gold (#c9a84c) shield or lock symbol in the centre. Save them to /public/icons/. If you cannot generate images, create SVG versions and convert them, or use a solid navy square as a placeholder and note that I need to replace them with my real logo.
+
+Link the manifest in the <head> of index.html:
+```html
+<link rel="manifest" href="/manifest.json" />
+```
+
+---
+
+### 2. Service Worker
+
+Create a file at /public/sw.js with a cache-first strategy for the app shell:
+
+```javascript
+const CACHE_NAME = 'immigration-app-v1';
+const ASSETS_TO_CACHE = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/icons/icon-192x192.png',
+  '/icons/icon-512x512.png'
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS_TO_CACHE))
+  );
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    )
+  );
+  self.clients.claim();
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request).catch(() =>
+        caches.match('/offline.html').then((res) => res || caches.match('/index.html'))
+      )
+    );
+    return;
+  }
+  event.respondWith(
+    caches.match(event.request).then((cached) => cached || fetch(event.request))
+  );
+});
+
+self.addEventListener('push', (event) => {
+  const data = event.data ? event.data.json() : {};
+  const title = data.title || 'Immigration Portal';
+  const options = {
+    body: data.body || 'You have a new notification.',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-72x72.png',
+    data: { url: data.url || '/' }
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(clients.openWindow(event.notification.data.url));
+});
+```
+
+Create a simple /public/offline.html page with:
+- Navy background matching the site
+- The site logo or name
+- A message: "You are currently offline. Please check your internet connection and try again."
+- A "Try again" button that calls window.location.reload()
+
+Register the service worker in index.html just before the closing </body> tag:
+```html
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .then(reg => console.log('Service worker registered:', reg.scope))
+        .catch(err => console.error('Service worker error:', err));
+    });
+  }
+</script>
+```
+
+---
+
+### 3. Meta Tags for iOS Safari
+
+Add these meta tags inside the <head> of index.html. iOS Safari does not fully respect the manifest file — these tags are required separately for iPhone users:
+
+```html
+<!-- iOS PWA support -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Britannia Visas" />
+<link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+<link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-128x128.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
+
+<!-- Theme colour (colours the browser chrome on Android) -->
+<meta name="theme-color" content="#1e3a5f" />
+
+<!-- General mobile -->
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="application-name" content="Britannia Visas" />
+```
+
+---
+
+### 4. Install Prompt Banner
+
+Create a React component called InstallPrompt.jsx and add it to the root of the app (App.jsx or Layout.jsx) so it appears on every page.
+
+The component should:
+
+1. Listen for the browser's `beforeinstallprompt` event and store it
+2. Show a banner at the bottom of the screen (fixed position, above any bottom navigation) when the event fires — meaning the browser has decided the app is installable
+3. The banner should look like this:
+   - Navy background (#1e3a5f) with white text
+   - Left side: small app icon (32x32) + text "Install the app for quick access — works on iPhone & Android"
+   - Right side: two buttons — "Install" (gold background, navy text) and an X dismiss button
+4. Clicking Install calls `prompt()` on the stored event, waits for the user's choice, and hides the banner
+5. Clicking X hides the banner and saves `pwa-install-dismissed: true` to localStorage
+6. On mount, check localStorage — if dismissed, never show the banner again
+7. On iOS Safari (where `beforeinstallprompt` doesn't fire), show a different banner after 3 seconds with the message: "To install: tap the Share button then 'Add to Home Screen'" with a small share icon illustration
+
+```jsx
+// InstallPrompt.jsx — add this component to your app root
+import { useState, useEffect } from 'react';
+
+export default function InstallPrompt() {
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showBanner, setShowBanner] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
+  useEffect(() => {
+    if (localStorage.getItem('pwa-install-dismissed')) return;
+
+    const isIOSDevice = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isInStandaloneMode = window.matchMedia('(display-mode: standalone)').matches;
+
+    if (isIOSDevice && !isInStandaloneMode) {
+      setIsIOS(true);
+      setTimeout(() => setShowBanner(true), 3000);
+      return;
+    }
+
+    const handler = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowBanner(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    setShowBanner(false);
+    setDeferredPrompt(null);
+  };
+
+  const handleDismiss = () => {
+    setShowBanner(false);
+    localStorage.setItem('pwa-install-dismissed', 'true');
+  };
+
+  if (!showBanner) return null;
+
+  return (
+    <div style={{
+      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 9999,
+      background: '#1e3a5f', color: 'white', padding: '12px 16px',
+      display: 'flex', alignItems: 'center', gap: '12px',
+      boxShadow: '0 -2px 12px rgba(0,0,0,0.2)'
+    }}>
+      <img src="/icons/icon-72x72.png" alt="" style={{ width: 32, height: 32, borderRadius: 8 }} />
+      <p style={{ flex: 1, margin: 0, fontSize: 13, lineHeight: 1.4 }}>
+        {isIOS
+          ? "To install: tap the Share button ↑ then 'Add to Home Screen'"
+          : 'Install the app for quick access — works on iPhone & Android'}
+      </p>
+      {!isIOS && (
+        <button onClick={handleInstall} style={{
+          background: '#c9a84c', color: '#1e3a5f', border: 'none',
+          padding: '8px 16px', borderRadius: 6, fontWeight: 500,
+          fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap'
+        }}>Install</button>
+      )}
+      <button onClick={handleDismiss} style={{
+        background: 'transparent', border: 'none', color: 'white',
+        fontSize: 20, cursor: 'pointer', padding: '0 4px', lineHeight: 1
+      }}>×</button>
+    </div>
+  );
+}
+```
+
+Import and render `<InstallPrompt />` inside App.jsx at the root level so it appears on all pages.
+
+---
+
+### 5. Push Notifications Setup (for deadline alerts on the CRM)
+
+Add push notification support so the CRM can send deadline alerts to your phone.
+
+Install the web-push package:
+```
+npm install web-push
+```
+
+Generate VAPID keys by running this once in the Replit shell:
+```
+npx web-push generate-vapid-keys
+```
+
+Store the output as Replit Secrets:
+- VAPID_PUBLIC_KEY
+- VAPID_PRIVATE_KEY
+- VAPID_EMAIL (your email address)
+
+Create a /api/subscribe endpoint that:
+- Accepts a POST request with the browser's push subscription object
+- Saves it to a Supabase table called `push_subscriptions` with columns: id, user_id, subscription (jsonb), created_at
+- Returns 201 on success
+
+Create a /api/send-notification endpoint that:
+- Accepts a POST request with { userId, title, body, url }
+- Looks up that user's push subscriptions from the table
+- Sends a push notification to each subscription using web-push
+- Handles expired subscriptions gracefully (remove them from the table)
+
+On the frontend, add a "Enable deadline notifications" button in the CRM settings or dashboard. When clicked:
+1. Request notification permission from the browser
+2. If granted, subscribe to push using the VAPID public key
+3. POST the subscription to /api/subscribe
+4. Show a success message: "Notifications enabled — you'll be alerted before deadlines"
+5. Save enabled state to localStorage so the button shows "Notifications on ✓" after enabling
+
+Wire up the deadline engine (from the CRM prompt) to call /api/send-notification whenever a deadline alert fires (60, 30, 14, 7, 1 day thresholds).
+
+---
+
+### 6. Final Checks
+
+After building, verify all of the following:
+
+- [ ] On Android Chrome: visiting the site shows an "Add to Home Screen" banner or the install banner appears within a few seconds
+- [ ] After installing on Android: app opens full screen with no browser address bar
+- [ ] The app icon appears on the home screen (not a generic globe icon)
+- [ ] On iPhone Safari: the install banner with share instructions appears after 3 seconds
+- [ ] After adding to home screen on iPhone: app opens full screen with navy status bar
+- [ ] If internet is disconnected: the offline page shows instead of a browser error
+- [ ] The manifest.json is valid — test at https://web.dev/measure or Chrome DevTools > Application > Manifest
+- [ ] The service worker is registered — check Chrome DevTools > Application > Service Workers
+- [ ] Lighthouse PWA audit in Chrome DevTools scores green (installable + PWA criteria met)
+- [ ] Push notification permission prompt appears when "Enable notifications" is clicked
+- [ ] A test push notification is received on the device
+
+---
+
+## NOTES
+
+- Run this prompt on BOTH your projects: the main immigration website AND the CRM
+- For the CRM version, change the manifest name to something like "Immigration CRM" or your business name + "CRM" so you can tell them apart on your home screen
+- Replace the placeholder icons with your actual logo as soon as possible — the icon is the first thing clients see on their home screen
+- The push notification setup only needs to be done on the CRM (for your deadline alerts). The client portal only needs steps 1–4.

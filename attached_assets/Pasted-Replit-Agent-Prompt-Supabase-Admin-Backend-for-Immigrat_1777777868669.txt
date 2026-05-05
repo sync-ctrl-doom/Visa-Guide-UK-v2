@@ -1,0 +1,231 @@
+Replit Agent Prompt — Supabase Admin Backend for Immigration Client Portal
+
+OVERVIEW
+Add a complete Supabase backend and private admin dashboard to the existing immigration client portal. The system must allow the site owner to create clients, assign required documents per client, monitor upload progress, and communicate securely — all without touching code.
+
+
+PART 1 — SUPABASE SETUP
+Connect the project to Supabase. Use the Supabase JavaScript client (@supabase/supabase-js). Store the Supabase URL and anon key as Replit Secrets named SUPABASE_URL and SUPABASE_ANON_KEY. Never hardcode these in the codebase.
+
+Create the following tables in Supabase:
+
+Table: clients
+id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+created_at timestamp DEFAULT now()
+client_ref text UNIQUE NOT NULL -- e.g. BVI-2025-00124
+full_name text NOT NULL
+email text NOT NULL
+phone text
+visa_type text NOT NULL -- e.g. "Skilled Worker", "Spouse", "Student"
+case_status text DEFAULT 'In Preparation' -- In Preparation / Active / Submitted / Complete
+password_hash text NOT NULL
+notes text
+adviser_name text
+
+Table: documents
+id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+client_id uuid REFERENCES clients(id) ON DELETE CASCADE
+document_name text NOT NULL -- e.g. "Passport (All Pages)"
+description text -- e.g. "Colour scans of all pages..."
+category text -- Identity / Financial / Medical / Employment / Other
+is_required boolean DEFAULT true
+status text DEFAULT 'Not uploaded' -- Not uploaded / Uploaded / Approved / Rejected
+uploaded_at timestamp
+file_url text -- Supabase Storage URL
+rejection_reason text
+
+Table: messages
+id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+client_id uuid REFERENCES clients(id) ON DELETE CASCADE
+sender text NOT NULL -- 'adviser' or 'client'
+message_text text NOT NULL
+sent_at timestamp DEFAULT now()
+is_read boolean DEFAULT false
+
+Table: admin_users
+id uuid PRIMARY KEY DEFAULT gen_random_uuid()
+email text UNIQUE NOT NULL
+password_hash text NOT NULL
+created_at timestamp DEFAULT now()
+
+Enable Supabase Storage. Create a private bucket called client-documents. Files should only be accessible via signed URLs generated server-side, never publicly readable.
+
+
+PART 2 — REFERENCE NUMBER & PASSWORD GENERATION
+When a new client is created:
+
+Auto-generate a client reference number in the format BVI-YYYY-NNNNN where YYYY is the current year and NNNNN is a zero-padded incrementing number (e.g. BVI-2025-00001).
+Auto-generate a secure random 8-character password (mix of uppercase, lowercase, numbers — no ambiguous characters like 0/O/1/l).
+Hash the password using bcrypt before storing in the database. Never store plaintext passwords.
+Show the generated reference number and plain-text password once on screen after creation (with a "Copy" button) and then never show it again — the admin must note it down to send to the client.
+
+PART 3 — DOCUMENT TEMPLATES BY VISA TYPE
+Create a document template system. When the admin selects a visa type for a new client, automatically pre-populate the document checklist with the standard documents for that visa type. The admin can then add, remove, or mark items as optional before saving.
+
+Use these default templates:
+
+Skilled Worker Visa:
+
+Passport (All Pages) — Identity — Required
+BRP / Current Leave Document — Identity — Required
+Bank Statements (3 months) — Financial — Required
+Payslips (3 months) — Employment — Required
+Employer Letter / Certificate of Sponsorship — Employment — Required
+TB Test Certificate — Medical — Required (if applicable)
+Medical Records / IHS Receipt — Medical — Required
+English Language Certificate — Other — Optional
+Spouse / Family Visa:
+
+Passport (All Pages) — Identity — Required
+Sponsor's Passport — Identity — Required
+Marriage Certificate — Identity — Required
+Bank Statements (6 months) — Financial — Required
+Sponsor's Payslips (3 months) — Employment — Required
+Proof of Accommodation — Other — Required
+Photos Together (dated) — Other — Required
+TB Test Certificate — Medical — Required (if applicable)
+Student Visa:
+
+Passport (All Pages) — Identity — Required
+CAS Number / Offer Letter — Other — Required
+Bank Statements (28 consecutive days) — Financial — Required
+English Language Certificate — Other — Required
+TB Test Certificate — Medical — Required (if applicable)
+ATAS Certificate — Other — Optional (subject-dependent)
+Tourist / Visitor Visa:
+
+Passport (All Pages) — Identity — Required
+Bank Statements (3 months) — Financial — Required
+Proof of Employment / Leave Letter — Employment — Required
+Travel Itinerary — Other — Required
+Proof of Accommodation — Other — Required
+ILR (Indefinite Leave to Remain):
+
+Passport (All Pages) — Identity — Required
+All Previous BRPs — Identity — Required
+Bank Statements (12 months) — Financial — Required
+Payslips (12 months) — Employment — Required
+Tax Returns (if self-employed) — Financial — Optional
+Absence Record — Other — Required
+Life in the UK Test Certificate — Other — Required
+English Language Certificate — Other — Required
+Allow the admin to add custom document types with their own name, category, and required/optional status.
+
+
+PART 4 — ADMIN DASHBOARD
+Create a private admin area at the route /admin. Protect it with a separate admin login (email + password stored in the admin_users table). This login is completely separate from the client portal login.
+
+The admin dashboard must include:
+
+4a — Client List View (default page)
+Table showing all clients: Name, Reference Number, Visa Type, Case Status, Upload Progress (e.g. 4/7 docs), Last Activity date
+Filter by: Case Status, Visa Type
+Search by name or reference number
+Click a client row to open their full client record
+"New Client" button in the top right
+4b — New Client Form
+Fields:
+
+Full Name (required)
+Email (required)
+Phone
+Visa Type — dropdown with all types listed in Part 3
+Assigned Adviser Name
+Notes (free text)
+On submit:
+
+Auto-generate reference number and password (see Part 2)
+Pre-populate document checklist based on visa type (see Part 3)
+Show a "Client Created" confirmation panel displaying the reference number and one-time password with a Copy button
+Offer a "Send Welcome Email" button that emails the client their reference number, password, and a link to the portal
+4c — Individual Client Record
+Sections:
+
+Client Details — all fields from the form, editable. Case Status dropdown (In Preparation / Active / Submitted / Complete).
+Document Checklist — list all assigned documents. For each:Document name, category, required/optional toggle
+Status badge (Not uploaded / Uploaded / Approved / Rejected)
+If uploaded: show filename, upload date, and a "View Document" button (opens signed URL)
+Approve or Reject buttons. If rejected, enter a rejection reason — client sees this in their portal.
+"Add Document" button to add a custom item
+"Remove" button to delete an item not yet uploaded
+Secure Messages — full chat thread with this client. Admin can type and send messages. Unread client messages shown with a blue dot.
+Activity Log — timestamped list of all actions (client uploaded X, admin approved Y, status changed to Z).
+4d — Admin Settings Page
+Change admin password
+Add / remove admin users
+Edit document templates per visa type
+Configure email sender name and reply-to address
+
+PART 5 — CLIENT PORTAL UPDATES
+Update the existing client portal login page to authenticate against Supabase:
+
+Client enters their reference number and password.
+Look up the client in the clients table by reference number.
+Compare the entered password against the stored bcrypt hash.
+If valid, create a session (use localStorage to store a session token — a signed JWT from Supabase Auth or a simple session flag).
+On successful login, redirect to their personal dashboard.
+The client dashboard must show:
+
+Their name and case status at the top
+Only their assigned documents (pulled from the documents table filtered by their client_id)
+Upload status per document — not uploaded, uploaded (pending review), approved (green), rejected (red with rejection reason shown)
+File upload for each document — on upload, store the file in Supabase Storage under a folder named by their client_id, save the URL to the documents table
+The secure messages thread — client can read and reply. Mark admin messages as read on open.
+
+PART 6 — EMAIL NOTIFICATIONS
+Use Resend (resend.com) for transactional email. Store the Resend API key as a Replit Secret named RESEND_API_KEY.
+
+Send emails for:
+
+Welcome email (triggered when admin clicks "Send Welcome Email"):
+
+To: client email
+Subject: "Your client portal is ready — [Business Name]"
+Body: their full name, reference number, one-time password, link to the portal login page, and instructions to change their password after first login.
+Document approved (triggered when admin approves a document):
+
+To: client email
+Subject: "Document approved — [document name]"
+Brief confirmation message.
+Document rejected (triggered when admin rejects a document):
+
+To: client email
+Subject: "Action required — [document name] needs to be re-uploaded"
+Include the rejection reason.
+New message (triggered when admin sends a secure message):
+
+To: client email
+Subject: "New message from your adviser"
+Brief notification to log in to read it. Do not include the message content in the email.
+Upload reminder (admin can trigger manually from client record):
+
+To: client email
+Friendly reminder that documents are still outstanding, listing which ones.
+
+PART 7 — SECURITY REQUIREMENTS
+All Supabase queries from the client portal must use Row Level Security (RLS). A logged-in client can only read and write rows where client_id matches their own session.
+The admin area must only be accessible to users in the admin_users table. Any unauthenticated request to /admin/* must redirect to /admin/login.
+Document files in Supabase Storage must never be publicly accessible. Always generate signed URLs with a 1-hour expiry for viewing.
+Passwords must be hashed with bcrypt (salt rounds: 12) before storing.
+All form inputs must be sanitised server-side before database insertion.
+Rate-limit login attempts: lock out after 5 failed attempts for 15 minutes.
+
+PART 8 — FINAL CHECKLIST
+When complete, confirm the following all work:
+
+[ ] Admin can log in at /admin with their credentials
+[ ] Admin can create a new client and the reference number + password are generated
+[ ] Admin can select a visa type and document checklist auto-populates
+[ ] Admin can add/remove/toggle required status of individual documents
+[ ] Welcome email sends correctly with reference number and password
+[ ] Client can log in using their reference number and password
+[ ] Client sees only their own documents — never another client's
+[ ] Client can upload a file and it appears in the admin record
+[ ] Admin can approve or reject uploaded documents
+[ ] Rejection reason appears in the client portal
+[ ] Secure messages work both directions
+[ ] Email notifications fire for approvals, rejections, and new messages
+[ ] No passwords are stored in plaintext anywhere in the codebase or database
+[ ] Supabase credentials are stored as Replit Secrets, never in code
+
+Paste this entire prompt into Replit Agent. If it asks clarifying questions, answer them and it will proceed. After it finishes, test each item in the final checklist before sharing the portal with any real clients.

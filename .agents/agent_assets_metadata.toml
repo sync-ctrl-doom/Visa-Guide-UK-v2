@@ -1,0 +1,26 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "xRgF7mpB63eiRx6MSeAYt"
+uri = "file://artifacts/uk-immigration/src/assets/london-skyline.png"
+type = "image"
+title = "London skyline classic architecture"
+
+[[generated]]
+id = "FYTrDCAciq2Ntpbkwi2H4"
+uri = "file://artifacts/uk-immigration/src/assets/office-interior.png"
+type = "image"
+title = "Solicitor office interior"
+
+[[generated]]
+id = "YNiaxZkcYc6lzZ6gTBwX-"
+uri = "file://artifacts/uk-immigration/src/assets/adviser.png"
+type = "image"
+title = "Professional immigration adviser"
+
+[[generated]]
+id = "IVfL_WlLzKwgFcYLD9s4q"
+uri = "file://artifacts/uk-immigration/src/assets/britannia-logo.png"
+type = "image"
+title = "generated_image"
